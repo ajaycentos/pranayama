@@ -114,6 +114,9 @@
           <option value="">-- Choose Preset --</option>
           <option value="box">Box Breathing (4-4-4-4)</option>
           <option value="478">4-7-8 Method</option>
+          <option value="nadiShodhana">Nadi Shodhana (~6 min)</option>
+          <option value="bhramari">Bhramari (5 Rounds)</option>
+          <option value="kapalabhati">Kapalabhati (1 Round)</option>
           <option value="custom">Custom (saved)</option>
         </select>
       </label>
@@ -129,9 +132,9 @@
       <button id="savePresetBtn" onclick="savePreset()">💾 Save as Custom</button>
     </div>
 
-    <div class="stage" id="stage">Ready?</div>
+    <div class="stage" id="stage" aria-live="polite">Ready?</div>
     <div class="circle" id="circle">
-        <div class="timer" id="timer">0</div>
+        <div class="timer" id="timer" aria-live="polite">0</div>
     </div>
 
     <div class="container progress-container">
@@ -220,7 +223,10 @@
     };
     const presets = {
         'box': { inhale: 4, hold1: 4, exhale: 4, hold2: 4 },
-        '478': { inhale: 4, hold1: 7, exhale: 8, hold2: 0 }
+        '478': { inhale: 4, hold1: 7, exhale: 8, hold2: 0 },
+        'nadiShodhana': { inhale: 5, hold1: 5, exhale: 10, hold2: 0, cycles: 18 },
+        'bhramari': { inhale: 6, hold1: 0, exhale: 15, hold2: 0, cycles: 5 },
+        'kapalabhati': { inhale: 1, hold1: 0, exhale: 1, hold2: 0, cycles: 30 }
     };
     
     // --- DOM Elements ---
@@ -252,18 +258,18 @@
     function applyTheme(themeName) {
         document.body.classList.remove(...ALL_THEMES.map(t => `theme-${t}`));
         if (themeName !== 'light') document.body.classList.add(`theme-${themeName}`);
-        localStorage.setItem('pranayamaTheme', themeName);
+        try { localStorage.setItem('pranayamaTheme', themeName); } catch (e) { console.error(e); }
     }
     function changeTransitionSound(soundKey) {
         transitionAudioEl.src = transitionSounds[soundKey];
-        localStorage.setItem('pranayamaTransitionSound', soundKey);
+        try { localStorage.setItem('pranayamaTransitionSound', soundKey); } catch (e) { console.error(e); }
     }
     function changeBackgroundMusic(trackKey, isCustom = false) {
         if (musicObjectURL) { URL.revokeObjectURL(musicObjectURL); musicObjectURL = null; }
         const wasPlaying = !bgMusicEl.paused;
         bgMusicEl.src = backgroundTracks[trackKey];
         if (!isCustom) {
-            localStorage.setItem('pranayamaBackgroundMusic', trackKey);
+            try { localStorage.setItem('pranayamaBackgroundMusic', trackKey); } catch (e) { console.error(e); }
             musicFileNameEl.textContent = trackKey === 'none' ? "Music disabled." : `Playing: ${backgroundMusicSelectEl.options[backgroundMusicSelectEl.selectedIndex].text}`;
         }
         if (wasPlaying && bgMusicEl.src) bgMusicEl.play();
@@ -278,6 +284,7 @@
         if (!bgMusicEl.paused) { bgMusicEl.pause(); if (bgMusicEl.src) bgMusicEl.play(); }
     }
     function loadSavedSettings() {
+      try {
         const savedTheme = localStorage.getItem('pranayamaTheme') || 'light';
         themeSelectEl.value = savedTheme;
         applyTheme(savedTheme);
@@ -287,6 +294,7 @@
         const savedBackgroundMusic = localStorage.getItem('pranayamaBackgroundMusic') || 'localForest';
         backgroundMusicSelectEl.value = savedBackgroundMusic;
         changeBackgroundMusic(savedBackgroundMusic);
+      } catch (e) { console.error("Could not load saved settings:", e); }
     }
 
     // --- Core Timer and UI Functions ---
@@ -294,18 +302,58 @@
       if (name === "custom") { loadCustomPreset(); return; }
       if (!presets[name]) return;
       const p = presets[name];
-      inhaleEl.value = p.inhale; hold1El.value = p.hold1; exhaleEl.value = p.exhale; hold2El.value = p.hold2;
+      inhaleEl.value = p.inhale;
+      hold1El.value = p.hold1;
+      exhaleEl.value = p.exhale;
+      hold2El.value = p.hold2;
+      // If the preset has a cycle count, update the input
+      if (p.cycles) {
+        cyclesEl.value = p.cycles;
+      }
+      resetUI(); // Update progress text immediately
     }
     function savePreset() {
       const preset = { inhale: inhaleEl.value, hold1: hold1El.value, exhale: exhaleEl.value, hold2: hold2El.value };
-      localStorage.setItem("customBreathing", JSON.stringify(preset));
-      alert("Custom preset saved!");
+      try {
+          localStorage.setItem("customBreathing", JSON.stringify(preset));
+          alert("Custom preset saved!");
+      } catch (e) {
+          console.error("Could not save preset:", e);
+          alert("Could not save preset. Local storage might be disabled.");
+      }
     }
     function loadCustomPreset() {
-      const preset = JSON.parse(localStorage.getItem("customBreathing"));
-      if (preset) { inhaleEl.value = preset.inhale; hold1El.value = preset.hold1; exhaleEl.value = preset.exhale; hold2El.value = preset.hold2; }
-      else { alert("No custom preset saved yet!"); document.getElementById('presetSelect').value = ""; }
+      try {
+        const presetJSON = localStorage.getItem("customBreathing");
+        if (presetJSON) {
+            const preset = JSON.parse(presetJSON);
+            inhaleEl.value = preset.inhale; hold1El.value = preset.hold1; exhaleEl.value = preset.exhale; hold2El.value = preset.hold2;
+        } else {
+            alert("No custom preset saved yet!");
+            document.getElementById('presetSelect').value = "";
+        }
+      } catch (e) {
+          console.error("Could not load custom preset:", e);
+          alert("Could not load custom preset.");
+      }
     }
+    
+    function startCountdown() {
+        let countdown = 5;
+        stageEl.textContent = "Get Ready...";
+        timerEl.textContent = countdown;
+        if (document.getElementById("enableBeep").checked) playTransitionSound();
+
+        const countdownInterval = setInterval(() => {
+            countdown--;
+            timerEl.textContent = countdown;
+            if (countdown <= 0) {
+                clearInterval(countdownInterval);
+                nextStage(); // Start the actual breathing cycles
+            }
+        }, 1000);
+    }
+    
     function startBreathing() {
         if (isRunning) return;
         isRunning = true;
@@ -324,11 +372,14 @@
         if (document.getElementById("enableMusic").checked && bgMusicEl.src) {
             bgMusicEl.play().catch(e => console.error("Error playing music:", e));
         }
-        nextStage();
+        startCountdown();
     }
+    
     function stopBreathing() {
         isRunning = false;
         clearInterval(interval);
+        // Also clear countdown interval if it exists
+        if (typeof countdownInterval !== 'undefined') clearInterval(countdownInterval);
         toggleControls(true);
         resetUI();
         bgMusicEl.pause();
